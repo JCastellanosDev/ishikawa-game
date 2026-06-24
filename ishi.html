@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego Ishikawa: Caso La Veloz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .handwritten { font-family: 'Caveat', cursive; }
+
+        .post-it {
+            background: linear-gradient(135deg, #fef08a 0%, #fde047 100%);
+            box-shadow: 2px 4px 6px rgba(0,0,0,0.1), inset 0 -2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            user-select: none;
+            cursor: grab;
+        }
+        .post-it:active { cursor: grabbing; }
+        .post-it:hover {
+            transform: scale(1.02);
+            box-shadow: 4px 8px 12px rgba(0,0,0,0.15);
+            z-index: 50;
+        }
+        .post-it.selected {
+            outline: 3px solid #3b82f6;
+            outline-offset: 2px;
+            z-index: 60;
+        }
+        .post-it.dragging {
+            opacity: 0.6;
+            transform: scale(1.05);
+            box-shadow: 8px 16px 20px rgba(0,0,0,0.2);
+            z-index: 100;
+        }
+        .post-it-pink  { background: linear-gradient(135deg, #fbcfe8 0%, #f9a8d4 100%); }
+        .post-it-blue  { background: linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%); }
+        .post-it-green { background: linear-gradient(135deg, #bbf7d0 0%, #86efac 100%); }
+
+        .drop-zone { transition: all 0.2s ease; }
+        .drop-zone.drag-over {
+            background-color: rgba(59, 130, 246, 0.08);
+            border-color: #3b82f6 !important;
+            transform: scale(1.02);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+        }
+        .drop-zone.tap-target {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* Fish head - subtle pulse */
+        .fish-head-pulse { animation: pulseHead 2.5s ease-in-out infinite; }
+        @keyframes pulseHead {
+            0%   { filter: drop-shadow(0 0 0px rgba(239, 68, 68, 0.15)); }
+            50%  { filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.45)); }
+            100% { filter: drop-shadow(0 0 0px rgba(239, 68, 68, 0.15)); }
+        }
+
+        /* Bottom Sheet */
+        .sheet-overlay {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .sheet-overlay.open { opacity: 1; pointer-events: auto; }
+
+        .bottom-sheet {
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .bottom-sheet.open { transform: translateY(0); }
+
+        /* Selected card floating indicator */
+        .sel-indicator {
+            transform: translateY(-130%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sel-indicator.visible { transform: translateY(0); }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col overflow-hidden">
+
+    <!-- HEADER -->
+    <header class="bg-white/90 backdrop-blur-sm border-b border-slate-300 px-4 lg:px-6 py-3 shadow-sm flex justify-between items-center z-50 flex-shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-red-500 text-white w-9 h-9 lg:w-10 lg:h-10 rounded-full flex items-center justify-center font-bold text-lg shadow-md">
+                <i class="fa-solid fa-pizza-slice"></i>
+            </div>
+            <div>
+                <h1 class="text-base lg:text-xl font-extrabold text-slate-800 leading-tight">La Pizzería Veloz</h1>
+                <p class="hidden sm:block text-[10px] lg:text-xs font-semibold text-slate-500 uppercase tracking-widest">Evaluación Definitiva: Diagrama de Ishikawa</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 lg:gap-4">
+            <button id="btn-verify" class="bg-green-600 hover:bg-green-500 text-white px-3 lg:px-5 py-2 rounded-lg font-bold shadow-md transition-all flex items-center gap-2 text-sm lg:text-base">
+                <i class="fa-solid fa-check-double"></i>
+                <span class="hidden sm:inline">Evaluar Pizarra</span>
+                <span class="sm:hidden">Evaluar</span>
+            </button>
+            <button id="btn-reset" class="bg-slate-200 hover:bg-slate-300 text-slate-700 p-2 rounded-lg shadow-sm transition-all" title="Reiniciar">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- SELECTED CARD INDICATOR (mobile only) -->
+    <div id="sel-indicator" class="sel-indicator fixed z-[45] left-0 right-0 px-3 py-2 lg:hidden" style="top: 57px">
+        <div class="bg-blue-600 text-white rounded-xl px-4 py-2.5 flex items-center justify-between shadow-lg">
+            <div class="flex items-center gap-2 min-w-0">
+                <i class="fa-solid fa-hand-pointer text-blue-200 flex-shrink-0"></i>
+                <span class="text-sm font-semibold truncate" id="sel-card-text"></span>
+            </div>
+            <button onclick="cancelSelection()" class="text-blue-200 hover:text-white ml-3 flex-shrink-0">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    <main class="flex-grow flex flex-col lg:flex-row w-full overflow-hidden" style="height: calc(100vh - 57px)">
+
+        <!-- SIDEBAR (Desktop) -->
+        <aside class="hidden lg:flex w-[320px] flex-shrink-0 bg-white/90 backdrop-blur-md border-r border-slate-300 shadow-xl flex-col z-40 p-4 h-full">
+            <div class="mb-4 bg-yellow-50 border border-yellow-200 p-4 rounded-xl shadow-sm">
+                <h3 class="font-bold text-yellow-800 mb-2 flex items-center gap-2 text-base">
+                    <i class="fa-solid fa-thumbtack text-red-500"></i> Instrucciones
+                </h3>
+                <p class="text-sm leading-relaxed mb-2 text-slate-700"><strong>1.</strong> Arrastra cada Post-it hacia las cajas del pescado.</p>
+                <p class="text-sm leading-relaxed mb-2 text-slate-700"><strong>2.</strong> Clasifica la causa en la categoría correcta.</p>
+                <p class="text-sm leading-relaxed mb-2 text-slate-700"><strong>3.</strong> Puedes arrastrar las tarjetas entre categorías para cambiar de opinión.</p>
+                <p class="text-sm leading-relaxed text-red-600 font-bold">¡Solo tienen 1 intento para evaluar!</p>
+            </div>
+            <div class="flex-grow flex flex-col min-h-0 bg-slate-100/50 rounded-xl border border-slate-200 p-2">
+                <h3 class="font-bold text-slate-800 mb-2 border-b-2 border-slate-200 pb-2 flex justify-between items-center px-1">
+                    <span>Fallos Detectados</span>
+                    <span class="text-[10px] bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">
+                        <i class="fa-solid fa-hand-pointer mr-1"></i> Arrastrar
+                    </span>
+                </h3>
+                <div id="deck" class="flex-grow overflow-y-auto custom-scroll pr-2 flex flex-col gap-3 pb-4 pt-1"></div>
+            </div>
+        </aside>
+
+        <!-- MAIN: Fish Diagram -->
+        <section class="flex-grow relative overflow-auto p-2 lg:p-4 pb-20 lg:pb-4 flex items-start lg:items-center justify-center">
+            <div class="relative w-full max-w-[1400px] aspect-[16/9] min-w-[820px] lg:min-w-[900px] bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden my-auto">
+
+                <!-- SVG: Fishbone — líneas finas, outline -->
+                <svg class="absolute inset-0 w-full h-full pointer-events-none z-0" viewBox="0 0 1600 900" preserveAspectRatio="none">
+
+                    <!-- Cola del pez (izquierda) -->
+                    <polyline points="80,450 40,390 10,355" stroke="#94a3b8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    <polyline points="80,450 40,510 10,545" stroke="#94a3b8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    <line x1="10" y1="355" x2="10" y2="545" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"/>
+
+                    <!-- Espina Dorsal (termina en la cabeza del pez) -->
+                    <line x1="80" y1="450" x2="1285" y2="450" stroke="#64748b" stroke-width="4.5" stroke-linecap="round"/>
+
+                    <!-- Flecha hacia la cabeza -->
+                    <polygon points="1260,438 1286,450 1260,462" fill="#64748b"/>
+
+                    <!-- Espinas Superiores -->
+                    <line x1="256" y1="360" x2="500"  y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="736" y1="360" x2="900"  y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="1168" y1="360" x2="1248" y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+
+                    <!-- Espinas Inferiores -->
+                    <line x1="256" y1="540" x2="500"  y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="736" y1="540" x2="900"  y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="1168" y1="540" x2="1248" y2="450" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+
+                    <!-- Cabeza del Pez — triángulo decorativo, pequeño y limpio -->
+                    <polygon points="1288,392 1360,450 1288,508"
+                             fill="rgba(239,68,68,0.08)" stroke="#ef4444" stroke-width="2.5"
+                             stroke-linejoin="round" class="fish-head-pulse"/>
+                    <!-- Ojo -->
+                    <circle cx="1314" cy="436" r="9" fill="white" stroke="#ef4444" stroke-width="1.5"/>
+                    <circle cx="1317" cy="436" r="4" fill="#1e293b"/>
+                    <circle cx="1315" cy="434" r="1.5" fill="white"/>
+                </svg>
+
+                <!-- Problema Central — caja rectangular fija (nunca se sale) -->
+                <div class="absolute right-0 top-1/2 -translate-y-1/2 w-[15%] z-20 pointer-events-none flex items-center justify-center">
+                    <div class="w-[88%] bg-red-500 text-white font-black text-center rounded-xl shadow-lg border-2 border-red-700 py-3 px-2 leading-snug"
+                         style="font-size: clamp(9px, 1.1vw, 16px)">
+                        PIZZAS<br>TARDE<br>Y<br>QUEMADAS
+                    </div>
+                </div>
+
+                <!-- ===== ZONAS SUPERIORES ===== -->
+                <div class="absolute left-[5%] top-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="mano-obra"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'mano-obra')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('mano-obra')">
+                    <div class="bg-blue-600 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none">
+                        1. Mano de Obra <i class="fa-solid fa-users ml-1"></i>
+                    </div>
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-down mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-mano-obra" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                </div>
+
+                <div class="absolute left-[35%] top-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="maquinaria"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'maquinaria')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('maquinaria')">
+                    <div class="bg-purple-600 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none">
+                        2. Maquinaria <i class="fa-solid fa-gears ml-1"></i>
+                    </div>
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-down mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-maquinaria" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                </div>
+
+                <div class="absolute left-[62%] top-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="materiales"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'materiales')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('materiales')">
+                    <div class="bg-amber-500 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none">
+                        3. Materiales <i class="fa-solid fa-box-open ml-1"></i>
+                    </div>
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-down mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-materiales" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                </div>
+
+                <!-- ===== ZONAS INFERIORES ===== -->
+                <div class="absolute left-[5%] bottom-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="metodo"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'metodo')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('metodo')">
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-up mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-metodo" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                    <div class="bg-emerald-600 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none border-t-2 border-slate-300">
+                        4. Método <i class="fa-solid fa-route ml-1"></i>
+                    </div>
+                </div>
+
+                <div class="absolute left-[35%] bottom-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="medicion"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'medicion')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('medicion')">
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-up mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-medicion" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                    <div class="bg-rose-600 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none border-t-2 border-slate-300">
+                        5. Medición <i class="fa-solid fa-gauge ml-1"></i>
+                    </div>
+                </div>
+
+                <div class="absolute left-[62%] bottom-[5%] w-[22%] h-[35%] flex flex-col drop-zone bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden z-10"
+                     data-category="medio-ambiente"
+                     ondragover="allowDrop(event)" ondrop="handleDrop(event,'medio-ambiente')"
+                     ondragenter="dragEnter(event)" ondragleave="dragLeave(event)"
+                     onclick="handleClickDrop('medio-ambiente')">
+                    <div class="flex-grow p-2 flex flex-col relative bg-slate-50/50">
+                        <div class="empty-placeholder absolute inset-2 flex items-center justify-center text-slate-400 font-bold text-sm border-2 border-dashed border-slate-300 rounded-lg pointer-events-none transition-opacity">
+                            <i class="fa-solid fa-arrow-up mr-2"></i> Arrastra aquí
+                        </div>
+                        <div id="zone-medio-ambiente" class="relative z-10 w-full h-full flex flex-col gap-2 items-center pointer-events-none"></div>
+                    </div>
+                    <div class="bg-cyan-600 text-white font-black py-2 px-3 text-center text-sm lg:text-base uppercase tracking-widest shadow-sm pointer-events-none border-t-2 border-slate-300">
+                        6. Entorno <i class="fa-solid fa-cloud-sun ml-1"></i>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MOBILE: Barra inferior -->
+    <div id="mobile-bar" class="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-lg px-4 py-3">
+        <button onclick="openSheet()" class="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors shadow-md">
+            <i class="fa-solid fa-note-sticky"></i>
+            <span>Ver Causas</span>
+            <span id="deck-badge" class="bg-red-500 text-white text-xs font-black px-2 py-0.5 rounded-full">8</span>
+        </button>
+    </div>
+
+    <!-- MOBILE: Overlay -->
+    <div id="sheet-overlay" class="sheet-overlay lg:hidden fixed inset-0 bg-slate-900/50 z-50 backdrop-blur-sm" onclick="closeSheet()"></div>
+
+    <!-- MOBILE: Bottom Sheet -->
+    <div id="bottom-sheet" class="bottom-sheet lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl" style="max-height: 72vh">
+        <div class="px-4 pt-4 pb-3 border-b border-slate-100">
+            <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base">Fallos Detectados</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Toca una causa → toca la categoría en el diagrama</p>
+                </div>
+                <button onclick="closeSheet()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+        </div>
+        <div id="deck-mobile" class="overflow-y-auto custom-scroll p-4 flex flex-wrap gap-3 pb-6" style="max-height: calc(72vh - 110px)"></div>
+    </div>
+
+    <!-- MODAL DE RESULTADO -->
+    <div id="result-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-[100] hidden">
+        <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center transform scale-95 transition-transform border-4 border-slate-200" id="modal-content">
+            <div id="modal-icon" class="text-7xl mb-4"></div>
+            <h2 id="modal-title" class="text-3xl font-black text-slate-800 mb-2"></h2>
+            <p id="modal-msg" class="text-slate-600 mb-6 text-lg font-medium"></p>
+            <button onclick="document.getElementById('result-modal').classList.add('hidden')"
+                    class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-colors text-lg shadow-lg">
+                Revisar Pizarra Bloqueada
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const initialCards = [
+            { id: "c1", text: "El horno se apaga solo",          category: "maquinaria",     color: "post-it",       rotation: "rotate-2"  },
+            { id: "c2", text: "Repartidor no conoce calles",     category: "mano-obra",      color: "post-it-blue",  rotation: "-rotate-1" },
+            { id: "c3", text: "Queso se derrite lento",          category: "materiales",     color: "post-it-pink",  rotation: "rotate-1"  },
+            { id: "c4", text: "Desorden al empacar",             category: "metodo",         color: "post-it-green", rotation: "-rotate-2" },
+            { id: "c5", text: "Termómetro del horno roto",       category: "medicion",       color: "post-it",       rotation: "rotate-1"  },
+            { id: "c6", text: "Tráfico por lluvia fuerte",       category: "medio-ambiente", color: "post-it-blue",  rotation: "rotate-3"  },
+            { id: "c7", text: "Personal no sabe usar app",       category: "mano-obra",      color: "post-it-pink",  rotation: "-rotate-1" },
+            { id: "c8", text: "Harina húmeda por clima",         category: "materiales",     color: "post-it-green", rotation: "rotate-1"  }
+        ];
+
+        let placements = {};
+        let selectedCardId = null;
+        let isGameLocked = false;
+
+        const deckEl       = document.getElementById("deck");
+        const deckMobileEl = document.getElementById("deck-mobile");
+
+        function isMobile() { return window.innerWidth < 1024; }
+
+        // ── Bottom Sheet ──────────────────────────────────────────
+        function openSheet() {
+            document.getElementById("bottom-sheet").classList.add("open");
+            document.getElementById("sheet-overlay").classList.add("open");
+        }
+        function closeSheet() {
+            document.getElementById("bottom-sheet").classList.remove("open");
+            document.getElementById("sheet-overlay").classList.remove("open");
+        }
+
+        // ── Selected card indicator (mobile) ──────────────────────
+        function updateIndicator() {
+            const indicator = document.getElementById("sel-indicator");
+            const textEl    = document.getElementById("sel-card-text");
+            if (selectedCardId && isMobile()) {
+                const card = initialCards.find(c => c.id === selectedCardId);
+                textEl.textContent = card.text;
+                indicator.classList.add("visible");
+                document.querySelectorAll('.drop-zone').forEach(z => z.classList.add('tap-target'));
+            } else {
+                indicator.classList.remove("visible");
+                document.querySelectorAll('.drop-zone').forEach(z => z.classList.remove('tap-target'));
+            }
+        }
+
+        window.cancelSelection = function() {
+            selectedCardId = null;
+            updateIndicator();
+            renderDeck();
+        };
+
+        function pickUpCard(cardId) {
+            if (isGameLocked) return;
+            delete placements[cardId];
+            selectedCardId = cardId;
+            updateIndicator();
+            renderDeck();
+            renderPlacedCards();
+        }
+
+        // ── Render Deck ───────────────────────────────────────────
+        function renderDeck() {
+            const placedIds       = Object.keys(placements);
+            const availableCards  = initialCards.filter(c => !placedIds.includes(c.id));
+            const badge           = document.getElementById("deck-badge");
+            if (badge) badge.textContent = availableCards.length;
+
+            // Desktop
+            deckEl.innerHTML = "";
+            if (availableCards.length === 0) {
+                deckEl.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-center text-slate-400 p-6 border-2 border-dashed border-slate-300 rounded-xl bg-white m-2">
+                        <i class="fa-solid fa-clipboard-check text-5xl text-green-400 mb-3"></i>
+                        <p class="font-bold text-slate-600 text-lg">¡Todas clasificadas!</p>
+                        ${!isGameLocked ? '<p class="text-sm mt-2 text-slate-500">Presiona "Evaluar Pizarra" para terminar.</p>' : ''}
+                    </div>`;
+            } else {
+                availableCards.forEach(card => {
+                    const isSelected = selectedCardId === card.id;
+                    const el = document.createElement("div");
+                    el.className = `post-it ${card.color} ${isSelected ? 'selected' : card.rotation} p-4 rounded-sm cursor-grab mx-2 my-1 min-h-[80px] flex items-center justify-center text-center pointer-events-auto`;
+                    el.draggable = !isGameLocked;
+                    el.onclick = () => selectCardClick(card.id);
+                    el.ondragstart = e => { handleDragStart(e, card.id); };
+                    el.ondragend   = () => el.classList.remove('dragging');
+                    el.innerHTML = `<span class="handwritten text-2xl leading-6 text-slate-800">${card.text}</span>`;
+                    deckEl.appendChild(el);
+                });
+            }
+
+            // Mobile
+            deckMobileEl.innerHTML = "";
+            if (availableCards.length === 0) {
+                deckMobileEl.innerHTML = `
+                    <div class="w-full flex flex-col items-center justify-center text-center text-slate-400 py-8">
+                        <i class="fa-solid fa-clipboard-check text-4xl text-green-400 mb-3"></i>
+                        <p class="font-bold text-slate-600">¡Todas clasificadas!</p>
+                    </div>`;
+            } else {
+                availableCards.forEach(card => {
+                    const isSelected = selectedCardId === card.id;
+                    const el = document.createElement("div");
+                    el.className = `post-it ${card.color} ${isSelected ? 'selected' : ''} p-3 rounded-sm cursor-pointer flex items-center justify-center text-center pointer-events-auto`;
+                    el.style.cssText = "min-height:70px; width:calc(50% - 6px)";
+                    el.onclick = () => selectCardMobile(card.id);
+                    el.innerHTML = `<span class="handwritten text-xl leading-5 text-slate-800">${card.text}</span>`;
+                    deckMobileEl.appendChild(el);
+                });
+            }
+        }
+
+        function selectCardMobile(id) {
+            if (isGameLocked) return;
+            selectedCardId = selectedCardId === id ? null : id;
+            renderDeck();
+            updateIndicator();
+            if (selectedCardId) closeSheet();
+        }
+
+        // ── Drag & Drop ───────────────────────────────────────────
+        function handleDragStart(e, id) {
+            if (isGameLocked) return;
+            e.dataTransfer.setData("text/plain", id);
+            e.target.classList.add('dragging');
+            selectedCardId = id;
+        }
+
+        function allowDrop(e) {
+            if (isGameLocked) return;
+            e.preventDefault();
+        }
+
+        function dragEnter(e) {
+            if (isGameLocked) return;
+            e.preventDefault();
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function dragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+
+        function handleDrop(e, category) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            if (isGameLocked) return;
+            const id = e.dataTransfer.getData("text/plain") || selectedCardId;
+            if (id) {
+                placements[id] = category;
+                selectedCardId = null;
+                updateIndicator();
+                renderDeck();
+                renderPlacedCards();
+            }
+        }
+
+        // ── Click interaction (desktop) ───────────────────────────
+        function selectCardClick(id) {
+            if (isGameLocked) return;
+            selectedCardId = selectedCardId === id ? null : id;
+            updateIndicator();
+            renderDeck();
+        }
+
+        window.handleClickDrop = function(category) {
+            if (isGameLocked || !selectedCardId) return;
+            placements[selectedCardId] = category;
+            selectedCardId = null;
+            updateIndicator();
+            renderDeck();
+            renderPlacedCards();
+        };
+
+        // ── Render Placed Cards ───────────────────────────────────
+        function renderPlacedCards() {
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                const cat         = zone.getAttribute('data-category');
+                const container   = document.getElementById(`zone-${cat}`);
+                const placeholder = zone.querySelector('.empty-placeholder');
+                container.innerHTML = "";
+                const count = Object.keys(placements).filter(id => placements[id] === cat).length;
+                placeholder.style.opacity = count > 0 ? '0' : '1';
+            });
+
+            Object.keys(placements).forEach(cardId => {
+                const category = placements[cardId];
+                const card     = initialCards.find(c => c.id === cardId);
+                const zone     = document.getElementById(`zone-${category}`);
+                if (!zone || !card) return;
+
+                const el = document.createElement("div");
+                el.className = `post-it ${card.color} w-[95%] p-2 rounded-sm flex items-center justify-center shadow-md relative group mt-1`;
+
+                let feedbackIcon = "";
+                if (isGameLocked) {
+                    const isCorrect = card.category === category;
+                    feedbackIcon = isCorrect
+                        ? `<div class="absolute -top-3 -right-3 bg-white rounded-full text-green-500 shadow-md text-2xl border-2 border-white"><i class="fa-solid fa-circle-check"></i></div>`
+                        : `<div class="absolute -top-3 -right-3 bg-white rounded-full text-red-500 shadow-md text-2xl border-2 border-white"><i class="fa-solid fa-circle-xmark"></i></div>`;
+                }
+
+                if (!isGameLocked) {
+                    el.style.pointerEvents = 'auto';
+                    el.style.cursor = 'grab';
+                    el.draggable = true;
+                    el.title = isMobile() ? 'Toca para mover' : 'Arrastra para mover a otra categoría';
+
+                    // Desktop: arrastrar a otra zona (no elimina de placements hasta que haya drop)
+                    el.ondragstart = e => {
+                        e.stopPropagation();
+                        e.dataTransfer.setData("text/plain", cardId);
+                        // Limpiar selección del mazo para no interferir
+                        selectedCardId = null;
+                        updateIndicator();
+                        el.classList.add('dragging');
+                    };
+                    el.ondragend = () => el.classList.remove('dragging');
+
+                    // Mobile: tap para recoger y mover
+                    el.onclick = e => {
+                        e.stopPropagation();
+                        if (isMobile()) pickUpCard(cardId);
+                    };
+                }
+
+                el.innerHTML = `
+                    <span class="handwritten text-xl leading-5 text-slate-800 text-center">${card.text}</span>
+                    ${feedbackIcon}
+                    ${!isGameLocked ? `<button class="absolute -top-2 -right-2 w-6 h-6 bg-slate-700 hover:bg-slate-900 text-white rounded-full text-xs shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                        onclick="event.stopPropagation(); removeCard('${cardId}')" title="Devolver al mazo"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                `;
+                zone.appendChild(el);
+            });
+        }
+
+        window.removeCard = function(cardId) {
+            if (isGameLocked) return;
+            delete placements[cardId];
+            renderDeck();
+            renderPlacedCards();
+        };
+
+        function showModal(title, msg, iconHtml) {
+            document.getElementById("modal-icon").innerHTML  = iconHtml;
+            document.getElementById("modal-title").innerText = title;
+            document.getElementById("modal-msg").innerText   = msg;
+            const modal = document.getElementById("result-modal");
+            modal.classList.remove("hidden");
+            setTimeout(() => {
+                document.getElementById("modal-content").classList.remove("scale-95");
+                document.getElementById("modal-content").classList.add("scale-100");
+            }, 10);
+        }
+
+        // ── Evaluar ───────────────────────────────────────────────
+        document.getElementById("btn-verify").addEventListener("click", () => {
+            if (isGameLocked) return;
+            if (Object.keys(placements).length < initialCards.length) {
+                showModal("Faltan Tarjetas", "Deben clasificar los 8 problemas en el pescado antes de entregar su evaluación.", '<i class="fa-solid fa-triangle-exclamation text-amber-500"></i>');
+                return;
+            }
+            isGameLocked = true;
+            const btn = document.getElementById("btn-verify");
+            btn.classList.add("opacity-50", "cursor-not-allowed");
+            btn.innerHTML = '<i class="fa-solid fa-lock"></i> <span class="hidden sm:inline">Pizarra Evaluada</span><span class="sm:hidden">Cerrada</span>';
+
+            let correct = 0;
+            Object.keys(placements).forEach(id => {
+                if (initialCards.find(c => c.id === id).category === placements[id]) correct++;
+            });
+            renderPlacedCards();
+
+            if (correct === initialCards.length) {
+                showModal("¡Evaluación Perfecta!", "Obtuvieron 100%. Clasificaron los 8 problemas correctamente en su único intento. ¡Excelente trabajo!", '<i class="fa-solid fa-trophy text-yellow-500"></i>');
+            } else {
+                showModal("Evaluación Finalizada", `Obtuvieron ${correct} de 8 aciertos. La pizarra ha sido bloqueada. Revisen en pantalla cuáles fueron sus errores marcados en rojo.`, '<i class="fa-solid fa-flag-checkered text-blue-500"></i>');
+            }
+        });
+
+        // ── Reiniciar ─────────────────────────────────────────────
+        document.getElementById("btn-reset").addEventListener("click", () => {
+            if (!confirm("¿Estás seguro de reiniciar la pizarra completa? Esto borrará el progreso del equipo actual.")) return;
+            placements     = {};
+            selectedCardId = null;
+            isGameLocked   = false;
+            updateIndicator();
+            const btn = document.getElementById("btn-verify");
+            btn.classList.remove("opacity-50", "cursor-not-allowed");
+            btn.innerHTML = '<i class="fa-solid fa-check-double"></i> <span class="hidden sm:inline">Evaluar Pizarra</span><span class="sm:hidden">Evaluar</span>';
+            renderDeck();
+            renderPlacedCards();
+        });
+
+        window.onload = () => {
+            renderDeck();
+            renderPlacedCards();
+        };
+    </script>
+</body>
+</html>
